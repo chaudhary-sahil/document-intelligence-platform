@@ -4,7 +4,6 @@ Document: `sample_contract.pdf` · embeddings: `sentence-transformers` · top_k=
 
 - Retrieval hit rate @5: **10/10** (100%), MRR 0.85
 - Correct abstentions (unanswerable questions): **5/5**
-- Answers containing the expected fact / correct refusal: **15/15**
 
 | Question | Result | Top score | Rank |
 |---|---|---|---|

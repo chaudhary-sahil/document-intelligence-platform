@@ -82,6 +82,9 @@ def _generate_openai(system_prompt, user_prompt):
         "temperature": 0.1,
         "max_tokens": config.LLM_MAX_TOKENS,
     }
+    if "gpt-oss" in config.LLM_MODEL.lower():
+        # These models "think" first; a low effort leaves the token budget for the answer.
+        payload["reasoning_effort"] = "low"
     try:
         response = requests.post(
             f"{config.LLM_BASE_URL.rstrip('/')}/chat/completions",
@@ -107,4 +110,24 @@ def _generate_openai(system_prompt, user_prompt):
         )
     if not response.ok:
         raise LLMError(f"LLM API error {response.status_code}: {response.text[:300]}")
-    return response.json()["choices"][0]["message"]["content"].strip()
+    choice = response.json()["choices"][0]
+    text = (choice["message"].get("content") or "").strip()
+    if choice.get("finish_reason") == "length":
+        text = trim_truncated(text)
+    return text
+
+
+TRUNCATION_NOTE = "\n\n_(The model ran out of space, so the unfinished last item was removed.)_"
+
+
+def trim_truncated(text):
+    """Drop a trailing line the model was cut off in the middle of."""
+    lines = text.rstrip().split("\n")
+    last = lines[-1].rstrip()
+    complete = last.endswith((".", "!", "?", "]", ")", '"', "”"))
+    # a bullet that is only a heading like "- Termination for Cause." is also unfinished
+    short_heading = last.lstrip("-*• ").count(" ") < 4 and len(lines) > 1
+    if complete and not short_heading:
+        return text
+    kept = "\n".join(lines[:-1]).rstrip()
+    return (kept + TRUNCATION_NOTE) if kept else text

@@ -65,3 +65,22 @@ class LLMServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TruncationTests(unittest.TestCase):
+    def test_unfinished_last_line_is_removed(self):
+        from backend.services.llm_service import trim_truncated
+        out = trim_truncated("- Term: 24 months [1]\n- Governing law: New York. Disputes shall be")
+        self.assertIn("Term: 24 months", out)
+        self.assertNotIn("Disputes shall be", out)
+        self.assertIn("ran out of space", out)
+
+    def test_bare_heading_bullet_is_removed(self):
+        from backend.services.llm_service import trim_truncated
+        out = trim_truncated("- Term: 24 months [1]\n- **Termination for Cause.**")
+        self.assertNotIn("Termination for Cause", out)
+
+    def test_complete_text_unchanged(self):
+        from backend.services.llm_service import trim_truncated
+        text = "- Fee is 8,000 USD per month, due within 45 days [2]"
+        self.assertEqual(trim_truncated(text), text)
