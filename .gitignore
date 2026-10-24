@@ -1,0 +1,13 @@
+.venv/
+myProject/
+__pycache__/
+*.pyc
+.DS_Store
+*.un~
+data/uploads/*
+!data/uploads/.gitkeep
+vector_db/*
+!vector_db/.gitkeep
+project_doc/
+venv/
+env/
