@@ -1,33 +1,36 @@
-"""Streamlit UI. Run from the project root:  streamlit run frontend/app.py"""
+"""Streamlit UI.  Run from the project root:  streamlit run frontend/app.py
+
+By default everything runs inside this one process (no separate backend needed).
+Set BACKEND_URL=http://127.0.0.1:8000 to use the FastAPI server instead.
+"""
 import os
-from urllib.parse import quote
+import sys
+from pathlib import Path
 
-import requests
+# Make `backend` importable no matter where Streamlit was started from.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import streamlit as st
-
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Document Intelligence Platform", page_icon="📄", layout="wide")
 
+# Streamlit Cloud keeps settings in "secrets". Copy them into environment
+# variables BEFORE the backend reads its configuration.
+try:
+    for _key, _value in st.secrets.items():
+        if isinstance(_value, (str, int, float, bool)):
+            os.environ.setdefault(_key, str(_value))
+except Exception:  # no secrets file: perfectly normal when running locally
+    pass
 
-def api(method, path, **kwargs):
-    """Call the backend. Returns (json, None) on success or (None, error_message)."""
-    timeout = kwargs.pop("timeout", 600)
-    try:
-        response = requests.request(method, f"{BACKEND_URL}{path}", timeout=timeout, **kwargs)
-    except requests.ConnectionError:
-        st.error(
-            f"Cannot reach the backend at {BACKEND_URL}. Start it with:\n\n"
-            "`uvicorn backend.main:app --port 8000`"
-        )
-        st.stop()
-    if response.status_code >= 400:
-        try:
-            detail = response.json().get("detail", response.text)
-        except ValueError:
-            detail = response.text
-        return None, str(detail)
-    return response.json(), None
+from backend.config import DEMO_MAX_QUESTIONS, DEMO_MODE, PROTECTED_DOCS  # noqa: E402
+from frontend.client import HttpClient, LocalClient  # noqa: E402
+
+
+@st.cache_resource(show_spinner="Loading the embedding model (first start takes a minute)…")
+def get_client():
+    backend_url = os.getenv("BACKEND_URL")
+    return HttpClient(backend_url) if backend_url else LocalClient()
 
 
 def render_sources(sources):
@@ -40,12 +43,43 @@ def render_sources(sources):
             st.write(s["text"])
 
 
+def can_ask():
+    """Demo mode: cap how many LLM calls one visitor can make (protects the free quota)."""
+    if not DEMO_MODE:
+        return True
+    if st.session_state.get("questions_used", 0) >= DEMO_MAX_QUESTIONS:
+        st.warning(
+            f"Demo limit reached ({DEMO_MAX_QUESTIONS} requests per visit). "
+            "Reload the page to start again, or run the project locally."
+        )
+        return False
+    st.session_state["questions_used"] = st.session_state.get("questions_used", 0) + 1
+    return True
+
+
+client = get_client()
+status, status_error = client.status()
+if status_error:
+    st.error(status_error)
+    st.stop()
+MAX_MB = status.get("max_upload_mb", 50)
+
 st.title("📄 Document Intelligence Platform")
+st.caption(
+    "Ask questions about your PDFs and get answers with page citations, "
+    "or generate a summary, risks, key dates and obligations."
+)
+if DEMO_MODE:
+    st.info(
+        "**Public demo.** The sample contract is pre-loaded, so you can start asking right away. "
+        "This deployment is shared: anything you upload can be seen by other visitors and is "
+        "wiped on restart, so please don't upload confidential files."
+    )
 
 if "flash" in st.session_state:
     st.success(st.session_state.pop("flash"))
 
-docs, error = api("GET", "/documents")
+docs, error = client.documents()
 if error:
     st.error(error)
     st.stop()
@@ -55,13 +89,10 @@ names = [d["filename"] for d in docs]
 with st.sidebar:
     st.header("1. Add a PDF")
     uploaded = st.file_uploader("Choose a PDF", type=["pdf"])
+    st.caption(f"Text-based PDFs only (no scans). Max {MAX_MB} MB.")
     if uploaded and st.button("Process & index", type="primary"):
         with st.spinner("Extracting text, chunking, embedding, storing…"):
-            result, error = api(
-                "POST",
-                "/upload",
-                files={"file": (uploaded.name, uploaded.getvalue(), "application/pdf")},
-            )
+            result, error = client.upload(uploaded.name, uploaded.getvalue())
         if error:
             st.error(error)
         else:
@@ -77,12 +108,21 @@ with st.sidebar:
     for d in docs:
         left, right = st.columns([4, 1])
         left.markdown(f"**{d['filename']}**  \n{d['chunks']} chunks")
-        if right.button("🗑", key=f"delete-{d['filename']}", help="Delete this document"):
-            _, error = api("DELETE", f"/documents/{quote(d['filename'])}")
+        if d["filename"] in PROTECTED_DOCS:
+            right.caption("🔒")
+        elif right.button("🗑", key=f"delete-{d['filename']}", help="Delete this document"):
+            _, error = client.delete(d["filename"])
             if error:
                 st.error(error)
             else:
                 st.rerun()
+
+    st.divider()
+    st.caption(
+        f"Embeddings: {status.get('embedding_backend', '?')}  \n"
+        f"LLM: {status.get('llm', '?')}  \n"
+        f"Mode: {client.mode}"
+    )
 
 # ---------------- Main area ----------------
 if not docs:
@@ -95,22 +135,16 @@ with ask_tab:
     scope = st.selectbox("Search in", ["All documents"] + names, key="ask_scope")
     question = st.text_input("Your question", placeholder="What are the termination clauses?")
     top_k = st.slider("Chunks to retrieve", 1, 10, 5, key="ask_k")
-    if st.button("Ask", type="primary") and question.strip():
-        with st.spinner("Retrieving and generating (the first answer can take a minute)…"):
-            data, error = api(
-                "POST",
-                "/ask",
-                json={
-                    "question": question,
-                    "top_k": top_k,
-                    "source": None if scope == "All documents" else scope,
-                },
+    if st.button("Ask", type="primary") and question.strip() and can_ask():
+        with st.spinner("Retrieving and generating…"):
+            data, error = client.ask(
+                question, top_k, None if scope == "All documents" else scope
             )
         if error:
             st.error(error)
         else:
             st.subheader("Answer")
-            st.write(data["answer"])
+            st.markdown(data["answer"])
             render_sources(data["sources"])
 
 with insights_tab:
@@ -126,15 +160,16 @@ with insights_tab:
     for column, (kind, label) in zip(columns, buttons.items()):
         if column.button(label, use_container_width=True, key=f"insight-{kind}"):
             chosen = kind
-    if chosen:
+    if chosen and can_ask():
         with st.spinner(f"Generating {buttons[chosen]}…"):
-            data, error = api("POST", "/insights", json={"kind": chosen, "source": doc})
+            data, error = client.insight(chosen, doc)
         if error:
             st.error(error)
         else:
             st.subheader(buttons[chosen])
-            st.write(data["answer"])
+            st.markdown(data["answer"])
             render_sources(data["sources"])
+    st.caption("AI-generated reading aid, not legal advice. Check the cited sources.")
 
 with search_tab:
     st.caption("Retrieval only, no LLM. Use this to judge whether the right chunks are found.")
@@ -142,10 +177,7 @@ with search_tab:
     query = st.text_input("Search query", key="search_query")
     k = st.slider("Results", 1, 20, 5, key="search_k")
     if st.button("Search") and query.strip():
-        params = {"q": query, "top_k": k}
-        if scope != "All documents":
-            params["source"] = scope
-        data, error = api("GET", "/search", params=params)
+        data, error = client.search(query, k, None if scope == "All documents" else scope)
         if error:
             st.error(error)
         else:

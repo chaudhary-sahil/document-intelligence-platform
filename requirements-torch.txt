@@ -1,0 +1,3 @@
+# Optional: use sentence-transformers (PyTorch) for embeddings instead of ONNX. Large download.
+-r requirements.txt
+sentence-transformers==5.5.1

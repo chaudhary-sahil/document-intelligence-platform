@@ -1,0 +1,20 @@
+{
+  "document": "sample_contract.pdf",
+  "questions": [
+    {"question": "How many days notice is needed to terminate for convenience?", "page": 3, "fact": "30 days"},
+    {"question": "How long does the provider have to remedy a material breach?", "page": 3, "fact": "15 days"},
+    {"question": "Which law governs the agreement?", "page": 3, "fact": "New York"},
+    {"question": "What is the monthly fee?", "page": 2, "fact": "8,000"},
+    {"question": "Within how many days must invoices be paid?", "page": 2, "fact": "45 days"},
+    {"question": "What is the limit of the provider's liability?", "page": 2, "fact": "preceding 6 months"},
+    {"question": "How long must confidential information be kept secret?", "page": 2, "fact": "5 years"},
+    {"question": "How long is the initial term of the agreement?", "page": 1, "fact": "24 months"},
+    {"question": "How much notice is needed to stop the automatic renewal?", "page": 1, "fact": "60 days"},
+    {"question": "Who are the parties to the agreement?", "page": 1, "fact": "Northwind Analytics"},
+    {"question": "What is the CEO's favourite colour?", "answerable": false},
+    {"question": "Give me a recipe for chocolate cake", "answerable": false},
+    {"question": "What is the capital of France?", "answerable": false},
+    {"question": "How do I reset my router password?", "answerable": false},
+    {"question": "Who won the football world cup?", "answerable": false}
+  ]
+}

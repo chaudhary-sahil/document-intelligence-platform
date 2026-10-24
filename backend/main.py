@@ -1,22 +1,21 @@
-"""FastAPI app. Run from the project root:  uvicorn backend.main:app --port 8000"""
+"""Optional FastAPI app (the Streamlit app doesn't need it).
+Run from the project root:  uvicorn backend.main:app --port 8000"""
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from backend.config import DEFAULT_TOP_K, MAX_UPLOAD_MB, UPLOAD_DIR
-from backend.services import embedding_service, rag_service, vector_store
-from backend.services.chunk_service import chunk_pages
+from backend.config import DEFAULT_TOP_K
+from backend.services import embedding_service, ingest_service, rag_service, vector_store
+from backend.services.ingest_service import IngestError
 from backend.services.llm_service import LLMError
-from backend.services.pdf_service import PDFError, extract_pages
+from backend.services.system_info import system_info
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the embedding model once at startup so the first upload isn't slow.
-    embedding_service.get_model()
+    embedding_service.warm_up()  # so the first upload isn't slow
     yield
 
 
@@ -43,62 +42,13 @@ def health_check():
 def upload_and_index(file: UploadFile = File(...)):
     """Save a PDF, then extract -> chunk -> embed -> store, in one request.
 
-    Declared with plain `def` (not `async def`) on purpose: this work is slow
-    and blocking, and FastAPI runs plain `def` endpoints in a thread pool so
-    the server stays responsive for other requests meanwhile.
+    Plain `def` (not `async def`) on purpose: the work is slow and blocking, and
+    FastAPI runs plain `def` endpoints in a thread pool so the server stays responsive.
     """
-    filename = Path(file.filename or "").name  # strips any ../ path tricks
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only .pdf files are accepted.")
-
-    final_path = UPLOAD_DIR / filename
-    temp_path = UPLOAD_DIR / f".{filename}.part"
-
-    # 1. Save to a temporary file, enforcing the size limit while streaming.
-    limit = MAX_UPLOAD_MB * 1024 * 1024
-    size = 0
-    too_big = False
-    with open(temp_path, "wb") as out:
-        while True:
-            block = file.file.read(1024 * 1024)
-            if not block:
-                break
-            size += len(block)
-            if size > limit:
-                too_big = True
-                break
-            out.write(block)
-    if too_big:
-        temp_path.unlink(missing_ok=True)
-        raise HTTPException(413, f"File is larger than {MAX_UPLOAD_MB} MB.")
-
-    # 2. Check it really is a PDF (not just named .pdf).
-    with open(temp_path, "rb") as check:
-        if check.read(5) != b"%PDF-":
-            temp_path.unlink(missing_ok=True)
-            raise HTTPException(400, "This file is not a valid PDF.")
-
-    # 3. Run the pipeline. Only replace the old file/index if everything succeeds.
     try:
-        pages, total_pages = extract_pages(temp_path)
-        chunks = chunk_pages(pages)
-        embeddings = embedding_service.embed_texts([c["text"] for c in chunks])
-        vector_store.add_document(filename, chunks, embeddings)
-    except PDFError as exc:
-        temp_path.unlink(missing_ok=True)
-        raise HTTPException(422, str(exc))
-    except Exception:
-        temp_path.unlink(missing_ok=True)
-        raise
-
-    temp_path.replace(final_path)
-    return {
-        "filename": filename,
-        "pages": total_pages,
-        "pages_with_text": len(pages),
-        "chunks": len(chunks),
-        "status": "indexed",
-    }
+        return ingest_service.ingest_pdf(file.filename, file.file)
+    except IngestError as exc:
+        raise HTTPException(exc.status_code, str(exc))
 
 
 @app.get("/documents")
@@ -108,14 +58,10 @@ def documents():
 
 @app.delete("/documents/{filename}")
 def delete_document(filename: str):
-    filename = Path(filename).name
-    removed = vector_store.delete_document(filename)
-    pdf_path = UPLOAD_DIR / filename
-    file_existed = pdf_path.exists()
-    pdf_path.unlink(missing_ok=True)
-    if removed == 0 and not file_existed:
-        raise HTTPException(404, f"No document named '{filename}'.")
-    return {"filename": filename, "chunks_removed": removed, "file_deleted": file_existed}
+    try:
+        return ingest_service.delete_document(filename)
+    except IngestError as exc:
+        raise HTTPException(exc.status_code, str(exc))
 
 
 @app.get("/search")
@@ -146,4 +92,4 @@ def insights(request: InsightRequest):
 
 @app.get("/db-info")
 def db_info():
-    return vector_store.stats()
+    return system_info()

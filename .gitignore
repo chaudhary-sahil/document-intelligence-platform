@@ -1,13 +1,14 @@
 .venv/
+venv/
+env/
 myProject/
+project_doc/
 __pycache__/
 *.pyc
 .DS_Store
 *.un~
+.streamlit/secrets.toml
 data/uploads/*
 !data/uploads/.gitkeep
 vector_db/*
 !vector_db/.gitkeep
-project_doc/
-venv/
-env/
