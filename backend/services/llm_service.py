@@ -80,7 +80,7 @@ def _generate_openai(system_prompt, user_prompt):
         "model": config.LLM_MODEL,
         "messages": _messages(system_prompt, user_prompt),
         "temperature": 0.1,
-        "max_tokens": 900,
+        "max_tokens": config.LLM_MAX_TOKENS,
     }
     try:
         response = requests.post(

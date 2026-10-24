@@ -74,3 +74,6 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
 LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GROQ_API_KEY", "")
+# Reasoning models (e.g. gpt-oss) spend part of this budget "thinking" before they answer,
+# so it must be generous or answers get cut off mid-sentence.
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "3000"))
