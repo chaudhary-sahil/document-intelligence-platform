@@ -4,9 +4,8 @@ Upload PDFs (contracts, papers, reports) and **ask questions in plain English**.
 cites the **page** it came from, and says *"I could not find this"* instead of guessing.
 One click also gives a summary, risks, key dates or obligations.
 
-**Live demo:** _add your `https://<your-app>.streamlit.app` link here_ · runs on free tiers only.
+**Live demo:** https://document-intelligence-platform-nalbuxurocdek4vfmfwbuh.streamlit.app/ · runs on free tier, may take a few seconds to wake up.
 
-<!-- Add screenshots to docs/images/ with these names (see the reply that came with this version) -->
 ![Ask tab](docs/images/ask.png)
 ![Insights tab](docs/images/insights.png)
 
@@ -91,11 +90,19 @@ Runs 15 questions on the sample contract (10 answerable with a known page and fa
 must be refused) and writes `docs/eval_results.md`. Reported: hit rate @K, MRR, correct
 refusals. Add your own questions in `data/eval/*.json`.
 
-_Results: run the script and paste the summary lines here._
+| Metric (15 questions, sample contract) | Result |
+|---|---|
+| Retrieval hit rate @5 | 10/10 |
+| MRR | 0.85 |
+| Correct refusals (unanswerable) | 5/5 |
+| Answers containing expected fact | 15/15 (local llama3.2) |
+
+This is a small test set on one synthetic contract, and prompts were tuned while looking at it.
+It shows the pipeline works; it is not a general accuracy claim.
 
 ## Free live demo on Streamlit Community Cloud
 
-1. Push this repo to GitHub (public is simplest).
+1. Push this repo to GitHub (needs to be readable by Streamlit; private works if you grant access).
 2. Create a free API key at [console.groq.com](https://console.groq.com) (no credit card).
 3. Go to [share.streamlit.io](https://share.streamlit.io) → **Create app** → pick the repo,
    branch `main`, main file `frontend/app.py`. Under **Advanced settings** choose Python 3.12
@@ -105,9 +112,10 @@ _Results: run the script and paste the summary lines here._
    DEMO_MODE = "true"
    LLM_PROVIDER = "openai"
    LLM_BASE_URL = "https://api.groq.com/openai/v1"
-   LLM_MODEL = "llama-3.3-70b-versatile"
+   LLM_MODEL = "openai/gpt-oss-120b"
    LLM_API_KEY = "your-groq-key"
    ```
+   Model names change; check Groq’s current list if you get ‘model not found’.
 4. Deploy. The first start downloads the embedding model (~80 MB), so allow a minute or two.
 
 **Demo mode** pre-loads the sample contract and protects it, lowers the upload limit to 5 MB,
@@ -154,6 +162,7 @@ Run the tests: `python -m unittest discover` (PDF tests are skipped if PyMuPDF i
 
 - Insights use the 8 most relevant chunks, not the whole document: good for contracts and
   short papers, an approximation for long books.
+- Answers on the live demo come from a hosted open-weight model; free-tier rate limits may apply.
 - No OCR: scanned PDFs are rejected with a clear message.
 - Small models can still misread legal text. This is a reading aid, **not legal advice**; always check the cited page.
 - Changing the embedding model or chunk settings requires re-uploading documents.
